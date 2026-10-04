@@ -25,7 +25,7 @@ def cleanDf(df):
     #     .str.replace(r"\s+", "_", regex=True)  # spaces -> underscores
     #     .str.replace(r"[^\w]", "", regex=True) # drop punctuation
     # )
-    df.fillna(0)
+    df.interpolate().bfill()
     return df
 
 def add_lap_lines(ax, cumLapTimes, drivers=('driverOne', 'driverTwo'),
@@ -40,24 +40,18 @@ def add_lap_lines(ax, cumLapTimes, drivers=('driverOne', 'driverTwo'),
 
     return ax
 
+def calculateLapTimes(cumLapTimes):
+    lapTimes = {}
+    for driver, cum in cumLapTimes.items():
+        lap_times = np.diff(cum, prepend=0)   # first lap = first cumulative value
+        lapTimes[driver] = pd.DataFrame({
+            'Lap Number': range(1, len(cum) + 1),
+            'Lap Times': lap_times,
+        })
+    return lapTimes
 
-files = ["Driver1EnduranceData.csv", "Driver2EnduranceData.csv"]
-
-if __name__ == "__main__":
-
-    drivers = {
-            'driverOne': pd.read_csv(files[0]),
-            'driverTwo': pd.read_csv(files[1]),
-        }
-    for name in drivers:
-        df = cleanDf(drivers[name])
-    #Offet driver 1 to align data
-    lapTimeOffset = 74.9
-    drivers['driverOne']['Time (s)'] -= lapTimeOffset
-    drivers['driverOne'] = drivers['driverOne'][drivers['driverOne']["Time (s)"] >= 0]
-    cumLapTimes['driverOne'] = [x - lapTimeOffset for x in cumLapTimes['driverOne']]
-
-
+#To plot 2 variables from the csv
+def plotFromCSV(drivers):
     # Assign each telemetry row to a lap number, then plot per column
     for name, d in drivers.items():
         d['Lap'] = np.searchsorted(cumLapTimes[name], d['Time (s)'], side='right') + 1
@@ -71,6 +65,7 @@ if __name__ == "__main__":
     header = columns[int(input("Enter header index: "))]
     heat = columns[int(input("Enter index for heat mapping: "))]
 
+
     # Driver 1: green -> red-orange
     cmap1 = LinearSegmentedColormap.from_list('d1', ['#00c000', '#ff8c00'])
     # Driver 2: blue-green -> red
@@ -78,13 +73,24 @@ if __name__ == "__main__":
 
     fig, ax = plt.subplots(figsize=(12, 6))
     lcs = []
+    xs, ys = [], []
     for name, cmap in zip(drivers, (cmap1, cmap2)):
         d = drivers[name]
         x = d['Time (s)']
-        y = gaussian_filter1d(d[header], sigma=15)
+        y = d[header]
+        top_5_idx = np.argsort(y)[-5:]
+        top_5_values = [y[i] for i in top_5_idx]
+        print(header,':', top_5_values)
+        y = gaussian_filter1d(y, sigma=15)
+        xs.append(x)
+        ys.append(y)
+
 
         h = d[heat].values
         norm_h = (h - h.min()) / (np.ptp(h) or 1)   # 0% -> 100% per driver
+        top_5_idx = np.argsort(h)[-5:]
+        top_5_values = [h[i] for i in top_5_idx]
+        print(heat,':',top_5_values)
 
         pts = np.column_stack([x, y]).reshape(-1, 1, 2)
         segments = np.concatenate([pts[:-1], pts[1:]], axis=1)
@@ -95,16 +101,62 @@ if __name__ == "__main__":
 
 
     ax.set(xlabel='Time (s)', ylabel=header, title=f"{header} vs Time (colour = {heat})")
-    ax.set_xlim(x.min(), x.max())
-    ax.set_ylim(y.min(), y.max())
+    ax.set_xlim(min(x.min() for x in xs), max(x.max() for x in xs))
+    ax.set_ylim(min(y.min() for y in ys), max(y.max() for y in ys))
     ax.legend()
 
     # One colourbar per driver, labelled with real values
-    cbar1 = fig.colorbar(lcs[0][0], ax=ax, pad=0.02)
-    cbar1.set_ticks([0, 1]); cbar1.set_ticklabels([f"{lcs[0][2]:.1f}", f"{lcs[0][3]:.1f}"])
-    cbar1.set_label(f"{name} {heat}")
-    cbar2 = fig.colorbar(lcs[1][0], ax=ax, pad=0.06)
-    cbar2.set_ticks([0, 1]); cbar2.set_ticklabels([f"{lcs[1][2]:.1f}", f"{lcs[1][3]:.1f}"])
-    cbar2.set_label(f"{name} {heat}")
+    names = list(drivers)
+    for i, (lc, heat, lo, hi) in enumerate(lcs):
+        cbar = fig.colorbar(lc, ax=ax, pad=0.02 + 0.04 * i)
+        cbar.set_ticks([0, 1])
+        cbar.set_ticklabels([f"{lo:.1f}", f"{hi:.1f}"])
+        cbar.set_label(f"{names[i]} {heat}")
     add_lap_lines(ax, cumLapTimes)
     plt.show()
+#To plot one var against the index
+def plot1var(data):
+    fig, ax = plt.subplots()
+    for driver, df in data.items():
+        df.plot(x='Lap Number', y='Lap Times', ax=ax, label=driver)
+    ax.set_xlabel('Lap Number')
+    ax.set_ylabel('Lap Time (s)')
+    ax.legend()
+    plt.show()
+
+def calculateStandardDeviationAndMean(drivers):
+    columns = [c for c in drivers['driverOne'].columns if c not in ('Time (s)', 'Lap')]
+    for header in columns:
+        for driver, df in drivers.items():
+            y = df[header].dropna()
+            print(
+                f"{driver} - {header}:\n"
+                f"  Standard deviation: {np.std(y):.4f}\n"
+                f"  Mean: {np.mean(y):.4f}\n"
+                f"  Max: {np.max(y):.4f}\n"
+            )
+
+
+
+files = ["Driver1EnduranceData.csv", "Driver2EnduranceData.csv"]
+
+if __name__ == "__main__":
+
+    drivers = {
+            'driverOne': pd.read_csv(files[0]),
+            'driverTwo': pd.read_csv(files[1]),
+        }
+    for name in drivers:
+        drivers[name] = cleanDf(drivers[name])
+    #Offet driver 1 to align data
+    lapTimeOffset = 74.9
+    drivers['driverOne']['Time (s)'] -= lapTimeOffset
+    drivers['driverOne'] = drivers['driverOne'][drivers['driverOne']["Time (s)"] >= 0]
+    cumLapTimes['driverOne'] = [x - lapTimeOffset for x in cumLapTimes['driverOne']]
+
+    # Add Lap Times
+    lapTimes = calculateLapTimes(cumLapTimes)
+
+    #plot1var(lapTimes)
+    #plotFromCSV(drivers)
+    calculateStandardDeviationAndMean(drivers)
