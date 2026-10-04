@@ -158,5 +158,5 @@ if __name__ == "__main__":
     lapTimes = calculateLapTimes(cumLapTimes)
 
     #plot1var(lapTimes)
-    #plotFromCSV(drivers)
+    plotFromCSV(drivers)
     calculateStandardDeviationAndMean(drivers)
