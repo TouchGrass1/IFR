@@ -1,0 +1,21 @@
+[project]
+name = "ifr-performance"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "TouchGrass1", email = "a4aarush.shah@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.11.2",
+    "pandas>=3.0.6",
+    "scipy>=1.18.1",
+]
+
+[project.scripts]
+ifr-performance = "ifr_performance:main"
+
+[build-system]
+requires = ["uv_build>=0.12.18,<0.13.0"]
+build-backend = "uv_build"
